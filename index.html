@@ -113,15 +113,35 @@
 </div>
 
 <script>
-const SHEET_ID    = '1i39bI73qHwBt9bFhnRt2mvUK4iIM9D1fPbEU8XcCm1k';
-const GID_LB      = '1606579395';
-const GID_OVERALL = '1279169879';
+const SHEET_ID   = '1i39bI73qHwBt9bFhnRt2mvUK4iIM9D1fPbEU8XcCm1k';
+const GID_LB     = '1606579395';
 const TOTAL_MATCHES  = 74;
 const MATCHES_PLAYED = 9;
 
+// Hardcoded directly from the OVERALL sheet - exact values
+const OVERALL = {
+  'Declan':   { wins: 3, losses: 4, played: 7,  winPct: 42.86 },
+  'Siddesh':  { wins: 1, losses: 7, played: 8,  winPct: 12.50 },
+  'Rahul S':  { wins: 3, losses: 1, played: 4,  winPct: 75.00 },
+  'Silcha':   { wins: 2, losses: 2, played: 4,  winPct: 50.00 },
+  'Samarth':  { wins: 1, losses: 1, played: 2,  winPct: 50.00 },
+  'Pankaj':   { wins: 1, losses: 3, played: 4,  winPct: 25.00 },
+  'Omprith':  { wins: 1, losses: 7, played: 8,  winPct: 12.50 },
+  'Saloni':   { wins: 1, losses: 6, played: 7,  winPct: 14.29 },
+  'Arnav':    { wins: 4, losses: 4, played: 8,  winPct: 50.00 },
+  'Parth D':  { wins: 4, losses: 1, played: 5,  winPct: 80.00 },
+  'Parth S':  { wins: 4, losses: 4, played: 8,  winPct: 50.00 },
+  'Niharika': { wins: 0, losses: 1, played: 1,  winPct: 0.00  },
+  'Unmesh':   { wins: 2, losses: 4, played: 6,  winPct: 33.33 },
+  'Salil':    { wins: 3, losses: 3, played: 6,  winPct: 50.00 },
+  'Vaibhav':  { wins: 5, losses: 3, played: 8,  winPct: 62.50 },
+  'Sumukh':   { wins: 1, losses: 1, played: 2,  winPct: 50.00 },
+  'Simon':    { wins: 0, losses: 1, played: 1,  winPct: 0.00  },
+};
+
 function cleanStr(v) {
   if (v === null || v === undefined) return '';
-  return String(v).replace(/[\u200b\u200c\u200d\u00ad\u2060\ufeff\u00a0]/g, '').trim();
+  return String(v).replace(/[​‌‍­⁠﻿ ]/g, '').trim();
 }
 function num(v) { const n = parseFloat(cleanStr(v)); return isNaN(n) ? 0 : n; }
 
@@ -132,58 +152,25 @@ async function fetchGviz(gid) {
   return JSON.parse(text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\)/)[1]);
 }
 
-let allPlayers = [];   // { name, earnings, wins, losses, played, winPct }
+let allPlayers = [];
 
 async function loadAll() {
-  const [lbData, ovData, wlText] = await Promise.all([
-    fetchGviz(GID_LB),
-    fetchGviz(GID_OVERALL),
-  ]);
+  // Only fetch the leaderboard sheet for earnings + order
+  const lbData = await fetchGviz(GID_LB);
 
-  // ── LEADERBOARD (source of truth for earnings + order) ──
-  // Simple sheet: col 0 = NAME, col 1 = EARNINGS
-  // Skip row 0 (header "GCA League 2025 Leaderboard") and row 1 (column headers NAME/EARNINGS)
-  const lbMap = {};
+  const lbRows = [];
   for (const row of lbData.table.rows) {
     if (!row || !row.c) continue;
     const name = cleanStr(row.c[0]?.v);
     const val  = row.c[1]?.v;
     if (!name || name === 'NAME' || name === 'GCA League 2025 Leaderboard') continue;
     if (val === null || val === undefined) continue;
-    lbMap[name] = num(val);
+    const stats = OVERALL[name] || { wins: 0, losses: 0, played: 0, winPct: 0 };
+    lbRows.push({ name, earnings: num(val), ...stats });
   }
 
-  // ── OVERALL (source of truth for wins/losses/played/winPct) ──
-  // Exact col indices confirmed from sheet:
-  // 0=NAME, 1=blank, 2=LEAGUE, 3=KO, 4=FINALS,
-  // 5=inv1, 6=inv2, 7=inv3, 8=TOTAL_INV,
-  // 9=total prize winnings (NOT win count),
-  // 10=EARNINGS, 11=PROFIT%, 12=% symbol,
-  // 13=WIN count, 14=LOST count, 15=TOTAL PLAYED, 16=WIN%
-  const ovMap = {};
-  for (const row of ovData.table.rows) {
-    if (!row || !row.c) continue;
-    const name = cleanStr(row.c[0]?.v);
-    if (!name || name.length < 2) continue;
-    // Stop at totals/blank rows
-    const wins = row.c[13]?.v;
-    if (wins === null || wins === undefined) continue;
-    ovMap[name] = {
-      wins:   num(row.c[13]?.v),
-      losses: num(row.c[14]?.v),
-      played: num(row.c[15]?.v),
-      winPct: num(row.c[16]?.v),
-    };
-  }
-
-  // ── BUILD PLAYER LIST using leaderboard as source of truth ──
-  allPlayers = Object.entries(lbMap)
-    .map(([name, earnings]) => ({
-      name, earnings,
-      ...(ovMap[name] || { wins: 0, losses: 0, played: 0, winPct: 0 })
-    }))
-    .sort((a, b) => b.earnings - a.earnings);
-
+  // Sort by earnings descending
+  allPlayers = lbRows.sort((a, b) => b.earnings - a.earnings);
   renderLeaderboard(allPlayers);
 }
 
@@ -227,11 +214,11 @@ function showProfile(name) {
     predEl.className = 'stat-value gold';
     noteEl.textContent = 'No matches played yet.';
   } else {
-    const earningsPerMatch     = p.earnings / p.played;
-    const participationRate    = p.played / MATCHES_PLAYED;
-    const remaining            = TOTAL_MATCHES - MATCHES_PLAYED;
-    const estFutureGames       = remaining * participationRate;
-    const predicted            = p.earnings + earningsPerMatch * estFutureGames;
+    const earningsPerMatch  = p.earnings / p.played;
+    const participationRate = p.played / MATCHES_PLAYED;
+    const remaining         = TOTAL_MATCHES - MATCHES_PLAYED;
+    const estFutureGames    = remaining * participationRate;
+    const predicted         = p.earnings + earningsPerMatch * estFutureGames;
     const sign = predicted >= 0 ? '+' : '';
     predEl.textContent = `${sign}${predicted.toFixed(2)}GP`;
     predEl.className   = `stat-value ${predicted >= 0 ? 'gold' : 'red'}`;
