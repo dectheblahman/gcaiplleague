@@ -179,7 +179,7 @@
       div.innerHTML = `
         <span class="${rankCls}">${medal}</span>
         <span class="${nameCls}">${p.name}</span>
-        <span class="earnings ${cls}">${sign}£${Math.abs(p.val).toFixed(2)}</span>
+        <span class="earnings ${cls}">${sign}${Math.abs(p.val).toFixed(0)}GP</span>
         <div class="bar"></div>
       `;
       container.appendChild(div);
