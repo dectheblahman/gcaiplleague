@@ -122,7 +122,8 @@ const MATCHES_PLAYED = 9;
 
 function parseCSV(text) {
   const rows = [];
-  for (const line of text.replace(//g, '').split('
+  for (const line of text.replace(/
+/g, '').split('
 ')) {
     if (!line.trim()) continue;
     const cols = []; let cur = '', inQ = false;
@@ -144,8 +145,8 @@ let allPlayers = [];
 
 async function loadAll() {
   const [ovText, lbText] = await Promise.all([
-    fetch(OVERALL_CSV).then(r => r.text()),
-    fetch(LB_CSV).then(r => r.text())
+    fetch(OVERALL_CSV + '&t=' + Date.now()).then(r => r.text()),
+    fetch(LB_CSV + '&t=' + Date.now()).then(r => r.text())
   ]);
 
   // --- Parse OVERALL CSV ---
