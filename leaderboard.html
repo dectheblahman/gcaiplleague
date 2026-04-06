@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>GCA IPL League 2026</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Fraunces:ital,wght@0,300;0,600;1,300&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0e0f0c;
+      --surface: #17180f;
+      --border: #2a2b1f;
+      --gold: #c9a84c;
+      --gold-dim: #7a6230;
+      --green: #4caf78;
+      --red: #e05c5c;
+      --text: #e8e5d8;
+      --muted: #6b6a5e;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 48px 16px 80px;
+    }
+
+    header {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 48px;
+    }
+
+    /* ── LOGO SLOT ── */
+    .logo-slot {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      border: 1.5px solid var(--border);
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--surface);
+      cursor: pointer;
+      position: relative;
+      transition: border-color 0.2s;
+    }
+    .logo-slot:hover { border-color: var(--gold-dim); }
+    .logo-slot img { width: 100%; height: 100%; object-fit: cover; }
+    .logo-slot .placeholder {
+      font-size: 10px;
+      color: var(--muted);
+      text-align: center;
+      line-height: 1.5;
+      padding: 8px;
+      pointer-events: none;
+    }
+    #logo-input { display: none; }
+
+    .title {
+      font-family: 'Fraunces', serif;
+      font-weight: 600;
+      font-size: clamp(1.5rem, 5vw, 2.2rem);
+      letter-spacing: -0.02em;
+      color: var(--text);
+      text-align: center;
+    }
+    .subtitle {
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-top: -12px;
+    }
+
+    /* ── TABLE ── */
+    .table-wrap {
+      width: 100%;
+      max-width: 520px;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 36px 1fr auto;
+      align-items: center;
+      gap: 16px;
+      padding: 14px 4px;
+      border-bottom: 1px solid var(--border);
+      opacity: 0;
+      transform: translateY(10px);
+      animation: fadeUp 0.35s forwards;
+    }
+    .row:last-child { border-bottom: none; }
+
+    .row.header-row {
+      opacity: 1;
+      transform: none;
+      animation: none;
+      padding: 0 4px 12px;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 4px;
+    }
+
+    .rank {
+      font-size: 11px;
+      color: var(--muted);
+      text-align: center;
+    }
+    .rank.gold { color: var(--gold); font-weight: 500; }
+
+    .name {
+      font-size: 15px;
+      font-family: 'Fraunces', serif;
+      font-weight: 300;
+    }
+    .name.top { color: var(--gold); }
+
+    .earnings {
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: -0.01em;
+      text-align: right;
+    }
+    .earnings.pos { color: var(--green); }
+    .earnings.neg { color: var(--red); }
+    .earnings.zero { color: var(--muted); }
+
+    /* bar indicator */
+    .row { position: relative; }
+    .bar {
+      position: absolute;
+      left: 0; right: 0; bottom: 0;
+      height: 1px;
+      background: var(--gold);
+      opacity: 0;
+      transform: scaleX(0);
+      transform-origin: left;
+      transition: opacity 0.2s, transform 0.3s;
+    }
+    .row:hover .bar { opacity: 0.25; transform: scaleX(1); }
+
+    @keyframes fadeUp {
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    footer {
+      margin-top: 48px;
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo-slot" onclick="document.getElementById('logo-input').click()" title="Click to upload logo">
+    <img id="logo-img" src="" alt="" style="display:none"/>
+    <span class="placeholder" id="logo-placeholder">click to<br/>add logo</span>
+  </div>
+  <input type="file" id="logo-input" accept="image/*"/>
+  <h1 class="title">GCA IPL League 2026</h1>
+  <p class="subtitle">Leaderboard</p>
+</header>
+
+<div class="table-wrap">
+  <div class="row header-row">
+    <span>#</span>
+    <span>Player</span>
+    <span>Earnings</span>
+  </div>
+
+  <div id="rows"></div>
+</div>
+
+<footer>Updated live from Google Sheets</footer>
+
+<script>
+  const SHEET_ID = '1i39bI73qHwBt9bFhnRt2mvUK4iIM9D1fPbEU8XcCm1k';
+  const GID = '1606579395';
+
+  // Logo upload
+  document.getElementById('logo-input').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const img = document.getElementById('logo-img');
+      img.src = ev.target.result;
+      img.style.display = 'block';
+      document.getElementById('logo-placeholder').style.display = 'none';
+    };
+    reader.readAsDataURL(file);
+  });
+
+  // Fetch and render
+  async function load() {
+    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&gid=${GID}`;
+    try {
+      const res = await fetch(url);
+      const text = await res.text();
+      const json = JSON.parse(text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\)/)[1]);
+      const rows = json.table.rows
+        .map(r => ({ name: r.c[0]?.v, val: r.c[1]?.v }))
+        .filter(r => r.name && r.name !== 'NAME' && r.name !== 'GCA League 2025 Leaderboard')
+        .sort((a, b) => b.val - a.val);
+
+      render(rows);
+    } catch {
+      // fallback to hardcoded data
+      render([
+        { name: 'Parth D',  val: 137.43 },
+        { name: 'Rahul S',  val: 87.43  },
+        { name: 'Vaibhav',  val: 80.43  },
+        { name: 'Arnav',    val: 42.43  },
+        { name: 'Parth S',  val: 39.00  },
+        { name: 'Sumukh',   val: 35.00  },
+        { name: 'Salil',    val: 33.00  },
+        { name: 'Silcha',   val: 26.43  },
+        { name: 'Samarth',  val: 18.00  },
+        { name: 'Niharika', val: 0.00   },
+        { name: 'Simon',    val: 0.00   },
+        { name: 'Declan',   val: -3.57  },
+        { name: 'Pankaj',   val: -30.00 },
+        { name: 'Unmesh',   val: -38.57 },
+        { name: 'Saloni',   val: -132.00},
+        { name: 'Omprith',  val: -145.00},
+        { name: 'Siddesh',  val: -150.00},
+      ]);
+    }
+  }
+
+  function render(rows) {
+    const container = document.getElementById('rows');
+    container.innerHTML = '';
+    rows.forEach((p, i) => {
+      const pos = p.val > 0, neg = p.val < 0;
+      const sign = pos ? '+' : '';
+      const cls = pos ? 'pos' : neg ? 'neg' : 'zero';
+      const rankCls = i === 0 ? 'rank gold' : 'rank';
+      const nameCls = i === 0 ? 'name top' : 'name';
+      const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}`;
+
+      const div = document.createElement('div');
+      div.className = 'row';
+      div.style.animationDelay = `${i * 40}ms`;
+      div.innerHTML = `
+        <span class="${rankCls}">${medal}</span>
+        <span class="${nameCls}">${p.name}</span>
+        <span class="earnings ${cls}">${sign}£${Math.abs(p.val).toFixed(2)}</span>
+        <div class="bar"></div>
+      `;
+      container.appendChild(div);
+    });
+  }
+
+  load();
+</script>
+</body>
+</html>
