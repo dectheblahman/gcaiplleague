@@ -108,6 +108,23 @@
     .row:hover .bar { opacity: 0.25; transform: scaleX(1); }
     @keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }
     footer { margin-top: 48px; font-size: 10px; color: var(--muted); letter-spacing: 0.08em; }
+
+    /* PROFILE */
+    .hidden { display: none !important; }
+    .back-btn { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); cursor: pointer; margin-bottom: 40px; background: none; border: none; font-family: 'DM Mono', monospace; transition: color 0.2s; padding: 0; }
+    .back-btn:hover { color: var(--text); }
+    .profile-wrap { width: 100%; max-width: 520px; }
+    .profile-name { font-family: 'Fraunces', serif; font-weight: 600; font-size: clamp(2rem, 8vw, 3rem); letter-spacing: -0.03em; margin-bottom: 4px; }
+    .profile-sub { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 36px; }
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+    .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 16px; }
+    .stat-label { font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+    .stat-value { font-family: 'Fraunces', serif; font-weight: 600; font-size: 1.8rem; letter-spacing: -0.02em; }
+    .stat-value.green { color: var(--green); }
+    .stat-value.red { color: var(--red); }
+    .stat-value.gold { color: var(--gold); }
+    .predict-card { background: #141810; border: 1px solid var(--gold-dim); border-radius: 6px; padding: 16px; }
+    .predict-note { font-size: 10px; color: var(--muted); margin-top: 6px; line-height: 1.6; }
   </style>
 </head>
 <body>
@@ -125,42 +142,103 @@
   <div id="rows"></div>
 </div>
 <footer>Updated live from Google Sheets</footer>
+
+<!-- PROFILE PAGE -->
+<div id="profile-page" class="hidden" style="width:100%;max-width:520px;display:flex;flex-direction:column;">
+  <button class="back-btn" onclick="showLeaderboard()">&#8592; Back</button>
+  <div class="profile-name" id="p-name"></div>
+  <div class="profile-sub">Player Profile</div>
+  <div class="stats-grid">
+    <div class="stat"><div class="stat-label">Matches Played</div><div class="stat-value" id="p-played">—</div></div>
+    <div class="stat"><div class="stat-label">Win %</div><div class="stat-value gold" id="p-winpct">—</div></div>
+    <div class="stat"><div class="stat-label">Wins</div><div class="stat-value green" id="p-wins">—</div></div>
+    <div class="stat"><div class="stat-label">Losses</div><div class="stat-value red" id="p-losses">—</div></div>
+  </div>
+  <div class="predict-card">
+    <div class="stat-label">&#9733; Predicted Final Earnings</div>
+    <div class="stat-value gold" id="p-predict">—</div>
+    <div class="predict-note" id="p-note"></div>
+  </div>
+</div>
 <script>
-  const SHEET_ID = '1i39bI73qHwBt9bFhnRt2mvUK4iIM9D1fPbEU8XcCm1k';
-  const GID = '1606579395';
+  const SHEET_ID    = '1i39bI73qHwBt9bFhnRt2mvUK4iIM9D1fPbEU8XcCm1k';
+  const GID_LB      = '1606579395';
+  const OVERALL_CSV = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRrrTnCGquWrQd4soUrWdSw3Xjg50PXvOfhjesyZp4liukXFyseGhd4pImO6Gfo2rZu-fXxk_dG_zpk/pub?gid=1279169879&single=true&output=csv';
+  const TOTAL_MATCHES  = 74;
+  const MATCHES_PLAYED = 9;
+
+  let allPlayers = []; // { name, val, wins, losses, played, winPct }
+
+  // Parse CSV into array of arrays
+  function parseCSV(text) {
+    const rows = [];
+    for (const line of text.replace(//g,'').split('
+')) {
+      if (!line.trim()) continue;
+      const cols = []; let cur = '', inQ = false;
+      for (const ch of line) {
+        if (ch === '"') { inQ = !inQ; }
+        else if (ch === ',' && !inQ) { cols.push(cur.trim()); cur = ''; }
+        else { cur += ch; }
+      }
+      cols.push(cur.trim());
+      rows.push(cols);
+    }
+    return rows;
+  }
+
+  function clean(v) {
+    return (v||'').replace(/[​‌‍­⁠﻿ ]/g,'').trim();
+  }
+  function n(v) { const x = parseFloat(clean(v)); return isNaN(x) ? 0 : x; }
 
   async function load() {
-    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&gid=${GID}`;
-    try {
-      const res = await fetch(url);
-      const text = await res.text();
-      const json = JSON.parse(text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\)/)[1]);
-      const rows = json.table.rows
-        .map(r => ({ name: r.c[0]?.v, val: r.c[1]?.v }))
-        .filter(r => r.name && r.name !== 'NAME' && r.name !== 'GCA League 2025 Leaderboard')
-        .sort((a, b) => b.val - a.val);
-      render(rows);
-    } catch {
-      render([
-        { name: 'Parth D',  val: 137.43 },
-        { name: 'Rahul S',  val: 87.43  },
-        { name: 'Vaibhav',  val: 80.43  },
-        { name: 'Arnav',    val: 42.43  },
-        { name: 'Parth S',  val: 39.00  },
-        { name: 'Sumukh',   val: 35.00  },
-        { name: 'Salil',    val: 33.00  },
-        { name: 'Silcha',   val: 26.43  },
-        { name: 'Samarth',  val: 18.00  },
-        { name: 'Niharika', val: 0.00   },
-        { name: 'Simon',    val: 0.00   },
-        { name: 'Declan',   val: -3.57  },
-        { name: 'Pankaj',   val: -30.00 },
-        { name: 'Unmesh',   val: -38.57 },
-        { name: 'Saloni',   val: -132.00},
-        { name: 'Omprith',  val: -145.00},
-        { name: 'Siddesh',  val: -150.00},
-      ]);
+    // Fetch leaderboard via gviz and overall via CSV in parallel
+    const lbUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&gid=${GID_LB}`;
+    const [lbRes, ovRes] = await Promise.all([
+      fetch(lbUrl),
+      fetch(OVERALL_CSV + '&t=' + Date.now())
+    ]);
+    const lbText = await lbRes.text();
+    const ovText = await ovRes.text();
+
+    // Parse leaderboard gviz
+    const json = JSON.parse(lbText.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\)/)[1]);
+    const lbRows = json.table.rows
+      .map(r => ({ name: r.c[0]?.v, val: r.c[1]?.v }))
+      .filter(r => r.name && r.name !== 'NAME' && r.name !== 'GCA League 2025 Leaderboard' && r.val !== null && r.val !== undefined)
+      .sort((a, b) => b.val - a.val);
+
+    // Parse Overall CSV
+    // Cols: 0=NAME,1=blank,2=LEAGUE,3=KO,4=FINALS,5=inv1,6=inv2,7=inv3,
+    //       8=TOTAL_INV,9=PRIZE_WINS,10=EARNINGS,11=PROFIT%,12=% symbol,
+    //       13=WIN count,14=LOST count,15=TOTAL PLAYED,16=WIN%
+    // FINALS col (4) = 1 for everyone as placeholder → subtract from losses+played
+    const ovRows = parseCSV(ovText);
+    const ovMap = {};
+    for (let i = 1; i < ovRows.length; i++) {
+      const row = ovRows[i];
+      const name = clean(row[0]);
+      if (!name || name.length < 2) continue;
+      if (name.toUpperCase().includes('TOTAL') || name.toUpperCase().includes('GRAND')) continue;
+      const finals  = n(row[4]);   // phantom finals match placeholder
+      const rawWins = n(row[13]);
+      const rawLoss = n(row[14]);
+      const rawPlay = n(row[15]);
+      const losses  = Math.max(0, rawLoss - finals);
+      const played  = Math.max(0, rawPlay - finals);
+      const wins    = rawWins;
+      const winPct  = played > 0 ? (wins / played * 100) : 0;
+      ovMap[name] = { wins, losses, played, winPct };
     }
+
+    // Merge
+    allPlayers = lbRows.map(p => ({
+      ...p,
+      ...(ovMap[p.name] || { wins: 0, losses: 0, played: 0, winPct: 0 })
+    }));
+
+    render(allPlayers);
   }
 
   function render(rows) {
@@ -175,7 +253,8 @@
       const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}`;
       const div = document.createElement('div');
       div.className = 'row';
-      div.style.animationDelay = `${i * 40}ms`;
+      div.style.cssText = `animation-delay:${i*40}ms; cursor:pointer;`;
+      div.onclick = () => showProfile(p.name);
       div.innerHTML = `
         <span class="${rankCls}">${medal}</span>
         <span class="${nameCls}">${p.name}</span>
@@ -186,7 +265,51 @@
     });
   }
 
-  load();
+  function showProfile(name) {
+    const p = allPlayers.find(x => x.name === name);
+    if (!p) return;
+
+    document.getElementById('p-name').textContent = name;
+    document.getElementById('p-played').textContent = p.played;
+    document.getElementById('p-wins').textContent   = p.wins;
+    document.getElementById('p-losses').textContent = p.losses;
+    document.getElementById('p-winpct').textContent = p.winPct.toFixed(1) + '%';
+
+    // Prediction: earnings per match played × estimated future participations
+    const predEl = document.getElementById('p-predict');
+    const noteEl = document.getElementById('p-note');
+    if (p.played === 0) {
+      predEl.textContent = '—';
+      predEl.className = 'stat-value gold';
+      noteEl.textContent = 'No matches played yet.';
+    } else {
+      const epm   = p.val / p.played;          // earnings per match
+      const rate  = p.played / MATCHES_PLAYED; // participation rate
+      const left  = TOTAL_MATCHES - MATCHES_PLAYED;
+      const pred  = p.val + epm * (left * rate);
+      const sign  = pred >= 0 ? '+' : '';
+      predEl.textContent = `${sign}${pred.toFixed(2)}GP`;
+      predEl.className   = `stat-value ${pred >= 0 ? 'gold' : 'red'}`;
+      noteEl.textContent = `${epm.toFixed(2)}GP avg/match · ${Math.round(rate*100)}% participation rate · ~${Math.round(left*rate)} games left`;
+    }
+
+    // Switch views
+    document.querySelector('header').classList.add('hidden');
+    document.querySelector('.table-wrap').classList.add('hidden');
+    document.querySelector('footer').classList.add('hidden');
+    document.getElementById('profile-page').classList.remove('hidden');
+    document.getElementById('profile-page').style.display = 'flex';
+    window.scrollTo(0, 0);
+  }
+
+  function showLeaderboard() {
+    document.querySelector('header').classList.remove('hidden');
+    document.querySelector('.table-wrap').classList.remove('hidden');
+    document.querySelector('footer').classList.remove('hidden');
+    document.getElementById('profile-page').classList.add('hidden');
+  }
+
+  load().catch(console.error);
 </script>
 </body>
 </html>
