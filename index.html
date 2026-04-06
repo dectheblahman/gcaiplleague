@@ -113,64 +113,90 @@
 </div>
 
 <script>
-const SHEET_ID   = '1i39bI73qHwBt9bFhnRt2mvUK4iIM9D1fPbEU8XcCm1k';
-const GID_LB     = '1606579395';
+const SHEET_ID  = '1i39bI73qHwBt9bFhnRt2mvUK4iIM9D1fPbEU8XcCm1k';
+const GID_LB    = '1606579395';
+const OVERALL_CSV = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRrrTnCGquWrQd4soUrWdSw3Xjg50PXvOfhjesyZp4liukXFyseGhd4pImO6Gfo2rZu-fXxk_dG_zpk/pub?gid=1279169879&single=true&output=csv';
+const LB_CSV      = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRrrTnCGquWrQd4soUrWdSw3Xjg50PXvOfhjesyZp4liukXFyseGhd4pImO6Gfo2rZu-fXxk_dG_zpk/pub?gid=1606579395&single=true&output=csv';
 const TOTAL_MATCHES  = 74;
 const MATCHES_PLAYED = 9;
 
-// Hardcoded directly from the OVERALL sheet - exact values
-const OVERALL = {
-  'Declan':   { wins: 3, losses: 4, played: 7,  winPct: 42.86 },
-  'Siddesh':  { wins: 1, losses: 7, played: 8,  winPct: 12.50 },
-  'Rahul S':  { wins: 3, losses: 1, played: 4,  winPct: 75.00 },
-  'Silcha':   { wins: 2, losses: 2, played: 4,  winPct: 50.00 },
-  'Samarth':  { wins: 1, losses: 1, played: 2,  winPct: 50.00 },
-  'Pankaj':   { wins: 1, losses: 3, played: 4,  winPct: 25.00 },
-  'Omprith':  { wins: 1, losses: 7, played: 8,  winPct: 12.50 },
-  'Saloni':   { wins: 1, losses: 6, played: 7,  winPct: 14.29 },
-  'Arnav':    { wins: 4, losses: 4, played: 8,  winPct: 50.00 },
-  'Parth D':  { wins: 4, losses: 1, played: 5,  winPct: 80.00 },
-  'Parth S':  { wins: 4, losses: 4, played: 8,  winPct: 50.00 },
-  'Niharika': { wins: 0, losses: 1, played: 1,  winPct: 0.00  },
-  'Unmesh':   { wins: 2, losses: 4, played: 6,  winPct: 33.33 },
-  'Salil':    { wins: 3, losses: 3, played: 6,  winPct: 50.00 },
-  'Vaibhav':  { wins: 5, losses: 3, played: 8,  winPct: 62.50 },
-  'Sumukh':   { wins: 1, losses: 1, played: 2,  winPct: 50.00 },
-  'Simon':    { wins: 0, losses: 1, played: 1,  winPct: 0.00  },
-};
-
-function cleanStr(v) {
-  if (v === null || v === undefined) return '';
-  return String(v).replace(/[​‌‍­⁠﻿ ]/g, '').trim();
+function parseCSV(text) {
+  const rows = [];
+  for (const line of text.replace(//g, '').split('
+')) {
+    if (!line.trim()) continue;
+    const cols = []; let cur = '', inQ = false;
+    for (const ch of line) {
+      if (ch === '"') { inQ = !inQ; }
+      else if (ch === ',' && !inQ) { cols.push(cur.trim()); cur = ''; }
+      else { cur += ch; }
+    }
+    cols.push(cur.trim());
+    rows.push(cols);
+  }
+  return rows;
 }
-function num(v) { const n = parseFloat(cleanStr(v)); return isNaN(n) ? 0 : n; }
 
-async function fetchGviz(gid) {
-  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&gid=${gid}`;
-  const res = await fetch(url);
-  const text = await res.text();
-  return JSON.parse(text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\)/)[1]);
-}
+function c(v) { return (v || '').replace(/[​‌‍­⁠﻿ ]/g,'').trim(); }
+function n(v) { const x = parseFloat(c(v)); return isNaN(x) ? 0 : x; }
 
 let allPlayers = [];
 
 async function loadAll() {
-  // Only fetch the leaderboard sheet for earnings + order
-  const lbData = await fetchGviz(GID_LB);
+  const [ovText, lbText] = await Promise.all([
+    fetch(OVERALL_CSV).then(r => r.text()),
+    fetch(LB_CSV).then(r => r.text())
+  ]);
 
-  const lbRows = [];
-  for (const row of lbData.table.rows) {
-    if (!row || !row.c) continue;
-    const name = cleanStr(row.c[0]?.v);
-    const val  = row.c[1]?.v;
-    if (!name || name === 'NAME' || name === 'GCA League 2025 Leaderboard') continue;
-    if (val === null || val === undefined) continue;
-    const stats = OVERALL[name] || { wins: 0, losses: 0, played: 0, winPct: 0 };
-    lbRows.push({ name, earnings: num(val), ...stats });
+  // --- Parse OVERALL CSV ---
+  // Structure (0-indexed cols):
+  // 0=NAME, 1=blank, 2=LEAGUE, 3=KO, 4=FINALS,
+  // 5=inv1, 6=inv2, 7=inv3, 8=TOTAL_INV,
+  // 9=PRIZE_WINS, 10=EARNINGS, 11=PROFIT%, 12=% symbol,
+  // 13=WIN count, 14=LOST count, 15=TOTAL PLAYED, 16=WIN%
+  const ovRows = parseCSV(ovText);
+  const ovMap = {};
+  for (let i = 1; i < ovRows.length; i++) {
+    const row = ovRows[i];
+    const name = c(row[0]);
+    if (!name || name.length < 2) continue;
+    // Stop at totals rows
+    if (name.toUpperCase().includes('TOTAL') || name.toUpperCase().includes('GRAND')) continue;
+
+    // FINALS col (index 4) contains 1 for every player as a placeholder
+    // This inflates played+losses by 1 — subtract it out
+    const finalsPlaceholder = n(row[4]);
+
+    const rawWins   = n(row[13]);
+    const rawLosses = n(row[14]);
+    const rawPlayed = n(row[15]);
+    const rawWinPct = n(row[16]);
+
+    // Subtract the finals placeholder match (counted as a loss for everyone)
+    const losses = Math.max(0, rawLosses - finalsPlaceholder);
+    const played = Math.max(0, rawPlayed - finalsPlaceholder);
+    const wins   = rawWins; // wins are correct
+    const winPct = played > 0 ? (wins / played * 100) : 0;
+
+    ovMap[name] = { wins, losses, played, winPct };
   }
 
-  // Sort by earnings descending
-  allPlayers = lbRows.sort((a, b) => b.earnings - a.earnings);
+  // --- Parse LEADERBOARD CSV ---
+  // Structure: row 0 = "GCA League 2025 Leaderboard", row 1 = "NAME, EARNINGS", row 2+ = data
+  const lbRows = parseCSV(lbText);
+  const players = [];
+  for (let i = 0; i < lbRows.length; i++) {
+    const row = lbRows[i];
+    const name = c(row[0]);
+    const val  = row[1];
+    if (!name || name === 'NAME' || name === 'GCA League 2025 Leaderboard' || !val) continue;
+    const earnings = n(val);
+    if (isNaN(earnings) && val === '') continue;
+    const stats = ovMap[name] || { wins: 0, losses: 0, played: 0, winPct: 0 };
+    players.push({ name, earnings, ...stats });
+  }
+
+  allPlayers = players.sort((a, b) => b.earnings - a.earnings);
   renderLeaderboard(allPlayers);
 }
 
@@ -200,13 +226,12 @@ function showProfile(name) {
   const p = allPlayers.find(x => x.name === name);
   if (!p) return;
 
-  document.getElementById('p-name').textContent    = name;
-  document.getElementById('p-played').textContent  = p.played;
-  document.getElementById('p-wins').textContent    = p.wins;
-  document.getElementById('p-losses').textContent  = p.losses;
-  document.getElementById('p-winpct').textContent  = p.winPct.toFixed(1) + '%';
+  document.getElementById('p-name').textContent   = name;
+  document.getElementById('p-played').textContent = p.played;
+  document.getElementById('p-wins').textContent   = p.wins;
+  document.getElementById('p-losses').textContent = p.losses;
+  document.getElementById('p-winpct').textContent = p.winPct.toFixed(1) + '%';
 
-  // Prediction
   const predEl = document.getElementById('p-predict');
   const noteEl = document.getElementById('p-predict-note');
   if (p.played === 0) {
