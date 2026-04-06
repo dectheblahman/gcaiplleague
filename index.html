@@ -163,85 +163,82 @@
 <script>
   const SHEET_ID    = '1i39bI73qHwBt9bFhnRt2mvUK4iIM9D1fPbEU8XcCm1k';
   const GID_LB      = '1606579395';
-  const OVERALL_CSV = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRrrTnCGquWrQd4soUrWdSw3Xjg50PXvOfhjesyZp4liukXFyseGhd4pImO6Gfo2rZu-fXxk_dG_zpk/pub?gid=1279169879&single=true&output=csv';
+  const GID_OV      = '1279169879';
   const TOTAL_MATCHES  = 74;
   const MATCHES_PLAYED = 9;
 
   let allPlayers = [];
 
-  function parseCSV(text) {
-    const rows = [];
-    for (const line of text.replace(/\r/g,'').split('\n')) {
-      if (!line.trim()) continue;
-      const cols = []; let cur = '', inQ = false;
-      for (const ch of line) {
-        if (ch === '"') { inQ = !inQ; }
-        else if (ch === ',' && !inQ) { cols.push(cur.trim()); cur = ''; }
-        else { cur += ch; }
-      }
-      cols.push(cur.trim());
-      rows.push(cols);
-    }
-    return rows;
-  }
-
-  function cl(v) { return (v||'').replace(/[\u200b\u200c\u200d\u00ad\u2060\ufeff\u00a0]/g,'').trim(); }
+  function cl(v) { return (v === null || v === undefined) ? '' : String(v).replace(/[\u200b\u200c\u200d\u00ad\u2060\ufeff\u00a0]/g,'').trim(); }
   function nm(v) { const x = parseFloat(cl(v)); return isNaN(x) ? 0 : x; }
 
-  async function load() {
-    // Load leaderboard first — this is proven to work
-    const lbUrl  = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/gviz/tq?tqx=out:json&gid=' + GID_LB;
-    const lbRes  = await fetch(lbUrl);
-    const lbText = await lbRes.text();
-    const match  = lbText.match(/setResponse\(([\s\S]*)\)/);
-    const json   = JSON.parse(match[1]);
+  async function fetchGviz(gid) {
+    const url  = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/gviz/tq?tqx=out:json&gid=' + gid;
+    const res  = await fetch(url);
+    const text = await res.text();
+    const m    = text.match(/setResponse\(([\s\S]*)\)/);
+    return JSON.parse(m[1]);
+  }
 
-    const lbRows = json.table.rows
-      .map(r => ({ name: r.c[0]?.v, val: r.c[1]?.v }))
+  async function load() {
+    // Fetch both sheets via gviz simultaneously
+    const [lbJson, ovJson] = await Promise.all([
+      fetchGviz(GID_LB),
+      fetchGviz(GID_OV)
+    ]);
+
+    // --- Leaderboard ---
+    const lbRows = lbJson.table.rows
+      .map(r => ({ name: cl(r.c[0]?.v), val: r.c[1]?.v }))
       .filter(r => r.name && r.name !== 'NAME' && r.name !== 'GCA League 2025 Leaderboard' && r.val != null)
       .sort((a, b) => b.val - a.val);
 
-    allPlayers = lbRows.map(p => ({ ...p, wins:0, losses:0, played:0, winPct:0 }));
-    render(allPlayers); // show leaderboard right away
+    // --- Overall sheet ---
+    // Col indices (with the blank col B shifting everything +1):
+    // 0=NAME, 1=blank, 2=LEAGUE, 3=KO, 4=FINALS,
+    // 5=inv1, 6=inv2, 7=inv3, 8=TOTAL_INV,
+    // 9=PRIZE_WINS, 10=EARNINGS, 11=PROFIT%, 12=%symbol,
+    // 13=WIN, 14=LOST, 15=TOTAL_PLAYED, 16=WIN%
+    // FINALS col=4 holds 1 for everyone as a not-yet-played placeholder
+    // So we subtract it from LOST and TOTAL_PLAYED
+    const ovMap = {};
+    for (const row of ovJson.table.rows) {
+      if (!row || !row.c) continue;
+      const name = cl(row.c[0]?.v);
+      if (!name || name.length < 2) continue;
+      if (!row.c[13] || row.c[13].v === null) continue; // skip non-player rows
 
-    // Then try overall stats — failures won't affect leaderboard
-    try {
-      const ovRes  = await fetch(OVERALL_CSV + '&t=' + Date.now());
-      const ovText = await ovRes.text();
-      const ovRows = parseCSV(ovText);
-      const ovMap  = {};
-      for (let i = 1; i < ovRows.length; i++) {
-        const row  = ovRows[i];
-        const name = cl(row[0]);
-        if (!name || name.length < 2) continue;
-        if (name.toUpperCase().includes('TOTAL') || name.toUpperCase().includes('GRAND')) continue;
-        const finals  = nm(row[4]);
-        const wins    = nm(row[13]);
-        const losses  = Math.max(0, nm(row[14]) - finals);
-        const played  = Math.max(0, nm(row[15]) - finals);
-        const winPct  = played > 0 ? (wins / played * 100) : 0;
-        ovMap[name]   = { wins, losses, played, winPct };
-      }
-      allPlayers = allPlayers.map(p => ({ ...p, ...(ovMap[p.name] || {}) }));
-    } catch(e) {
-      console.warn('Overall stats unavailable:', e);
+      const finals = nm(row.c[4]?.v);   // finals placeholder (1 for all)
+      const wins   = nm(row.c[13]?.v);
+      const losses = Math.max(0, nm(row.c[14]?.v) - finals);
+      const played = Math.max(0, nm(row.c[15]?.v) - finals);
+      const winPct = played > 0 ? (wins / played * 100) : 0;
+
+      ovMap[name] = { wins, losses, played, winPct };
     }
+
+    allPlayers = lbRows.map(p => ({
+      ...p,
+      ...(ovMap[p.name] || { wins: 0, losses: 0, played: 0, winPct: 0 })
+    }));
+
+    render(allPlayers);
   }
 
   function render(rows) {
     const container = document.getElementById('rows');
     container.innerHTML = '';
     rows.forEach((p, i) => {
-      const pos = p.val > 0, neg = p.val < 0;
-      const sign = pos ? '+' : '';
-      const cls  = pos ? 'pos' : neg ? 'neg' : 'zero';
+      const pos     = p.val > 0, neg = p.val < 0;
+      const sign    = pos ? '+' : '';
+      const cls     = pos ? 'pos' : neg ? 'neg' : 'zero';
       const rankCls = i === 0 ? 'rank gold' : 'rank';
       const nameCls = i === 0 ? 'name top' : 'name';
       const medal   = i === 0 ? '\u{1F947}' : i === 1 ? '\u{1F948}' : i === 2 ? '\u{1F949}' : (i+1);
-      const div = document.createElement('div');
+      const div     = document.createElement('div');
       div.className = 'row';
       div.style.cssText = 'animation-delay:' + (i*40) + 'ms;cursor:pointer;';
-      div.onclick = () => showProfile(p.name);
+      div.onclick   = () => showProfile(p.name);
       div.innerHTML =
         '<span class="' + rankCls + '">' + medal + '</span>' +
         '<span class="' + nameCls + '">' + p.name + '</span>' +
