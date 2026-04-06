@@ -167,13 +167,11 @@
   const TOTAL_MATCHES  = 74;
   const MATCHES_PLAYED = 9;
 
-  let allPlayers = []; // { name, val, wins, losses, played, winPct }
+  let allPlayers = [];
 
-  // Parse CSV into array of arrays
   function parseCSV(text) {
     const rows = [];
-    for (const line of text.replace(//g,'').split('
-')) {
+    for (const line of text.replace(/\r/g,'').split('\n')) {
       if (!line.trim()) continue;
       const cols = []; let cur = '', inQ = false;
       for (const ch of line) {
@@ -187,58 +185,47 @@
     return rows;
   }
 
-  function clean(v) {
-    return (v||'').replace(/[​‌‍­⁠﻿ ]/g,'').trim();
-  }
-  function n(v) { const x = parseFloat(clean(v)); return isNaN(x) ? 0 : x; }
+  function cl(v) { return (v||'').replace(/[\u200b\u200c\u200d\u00ad\u2060\ufeff\u00a0]/g,'').trim(); }
+  function nm(v) { const x = parseFloat(cl(v)); return isNaN(x) ? 0 : x; }
 
   async function load() {
-    // Fetch leaderboard via gviz and overall via CSV in parallel
-    const lbUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&gid=${GID_LB}`;
-    const [lbRes, ovRes] = await Promise.all([
-      fetch(lbUrl),
-      fetch(OVERALL_CSV + '&t=' + Date.now())
-    ]);
+    // Load leaderboard first — this is proven to work
+    const lbUrl  = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/gviz/tq?tqx=out:json&gid=' + GID_LB;
+    const lbRes  = await fetch(lbUrl);
     const lbText = await lbRes.text();
-    const ovText = await ovRes.text();
+    const match  = lbText.match(/setResponse\(([\s\S]*)\)/);
+    const json   = JSON.parse(match[1]);
 
-    // Parse leaderboard gviz
-    const json = JSON.parse(lbText.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\)/)[1]);
     const lbRows = json.table.rows
       .map(r => ({ name: r.c[0]?.v, val: r.c[1]?.v }))
-      .filter(r => r.name && r.name !== 'NAME' && r.name !== 'GCA League 2025 Leaderboard' && r.val !== null && r.val !== undefined)
+      .filter(r => r.name && r.name !== 'NAME' && r.name !== 'GCA League 2025 Leaderboard' && r.val != null)
       .sort((a, b) => b.val - a.val);
 
-    // Parse Overall CSV
-    // Cols: 0=NAME,1=blank,2=LEAGUE,3=KO,4=FINALS,5=inv1,6=inv2,7=inv3,
-    //       8=TOTAL_INV,9=PRIZE_WINS,10=EARNINGS,11=PROFIT%,12=% symbol,
-    //       13=WIN count,14=LOST count,15=TOTAL PLAYED,16=WIN%
-    // FINALS col (4) = 1 for everyone as placeholder → subtract from losses+played
-    const ovRows = parseCSV(ovText);
-    const ovMap = {};
-    for (let i = 1; i < ovRows.length; i++) {
-      const row = ovRows[i];
-      const name = clean(row[0]);
-      if (!name || name.length < 2) continue;
-      if (name.toUpperCase().includes('TOTAL') || name.toUpperCase().includes('GRAND')) continue;
-      const finals  = n(row[4]);   // phantom finals match placeholder
-      const rawWins = n(row[13]);
-      const rawLoss = n(row[14]);
-      const rawPlay = n(row[15]);
-      const losses  = Math.max(0, rawLoss - finals);
-      const played  = Math.max(0, rawPlay - finals);
-      const wins    = rawWins;
-      const winPct  = played > 0 ? (wins / played * 100) : 0;
-      ovMap[name] = { wins, losses, played, winPct };
+    allPlayers = lbRows.map(p => ({ ...p, wins:0, losses:0, played:0, winPct:0 }));
+    render(allPlayers); // show leaderboard right away
+
+    // Then try overall stats — failures won't affect leaderboard
+    try {
+      const ovRes  = await fetch(OVERALL_CSV + '&t=' + Date.now());
+      const ovText = await ovRes.text();
+      const ovRows = parseCSV(ovText);
+      const ovMap  = {};
+      for (let i = 1; i < ovRows.length; i++) {
+        const row  = ovRows[i];
+        const name = cl(row[0]);
+        if (!name || name.length < 2) continue;
+        if (name.toUpperCase().includes('TOTAL') || name.toUpperCase().includes('GRAND')) continue;
+        const finals  = nm(row[4]);
+        const wins    = nm(row[13]);
+        const losses  = Math.max(0, nm(row[14]) - finals);
+        const played  = Math.max(0, nm(row[15]) - finals);
+        const winPct  = played > 0 ? (wins / played * 100) : 0;
+        ovMap[name]   = { wins, losses, played, winPct };
+      }
+      allPlayers = allPlayers.map(p => ({ ...p, ...(ovMap[p.name] || {}) }));
+    } catch(e) {
+      console.warn('Overall stats unavailable:', e);
     }
-
-    // Merge
-    allPlayers = lbRows.map(p => ({
-      ...p,
-      ...(ovMap[p.name] || { wins: 0, losses: 0, played: 0, winPct: 0 })
-    }));
-
-    render(allPlayers);
   }
 
   function render(rows) {
@@ -247,20 +234,19 @@
     rows.forEach((p, i) => {
       const pos = p.val > 0, neg = p.val < 0;
       const sign = pos ? '+' : '';
-      const cls = pos ? 'pos' : neg ? 'neg' : 'zero';
+      const cls  = pos ? 'pos' : neg ? 'neg' : 'zero';
       const rankCls = i === 0 ? 'rank gold' : 'rank';
       const nameCls = i === 0 ? 'name top' : 'name';
-      const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}`;
+      const medal   = i === 0 ? '\u{1F947}' : i === 1 ? '\u{1F948}' : i === 2 ? '\u{1F949}' : (i+1);
       const div = document.createElement('div');
       div.className = 'row';
-      div.style.cssText = `animation-delay:${i*40}ms; cursor:pointer;`;
+      div.style.cssText = 'animation-delay:' + (i*40) + 'ms;cursor:pointer;';
       div.onclick = () => showProfile(p.name);
-      div.innerHTML = `
-        <span class="${rankCls}">${medal}</span>
-        <span class="${nameCls}">${p.name}</span>
-        <span class="earnings ${cls}">${sign}${Math.abs(p.val).toFixed(2)}GP</span>
-        <div class="bar"></div>
-      `;
+      div.innerHTML =
+        '<span class="' + rankCls + '">' + medal + '</span>' +
+        '<span class="' + nameCls + '">' + p.name + '</span>' +
+        '<span class="earnings ' + cls + '">' + sign + Math.abs(p.val).toFixed(2) + 'GP</span>' +
+        '<div class="bar"></div>';
       container.appendChild(div);
     });
   }
@@ -269,37 +255,35 @@
     const p = allPlayers.find(x => x.name === name);
     if (!p) return;
 
-    document.getElementById('p-name').textContent = name;
-    document.getElementById('p-played').textContent = p.played;
-    document.getElementById('p-wins').textContent   = p.wins;
-    document.getElementById('p-losses').textContent = p.losses;
-    document.getElementById('p-winpct').textContent = p.winPct.toFixed(1) + '%';
+    document.getElementById('p-name').textContent    = name;
+    document.getElementById('p-played').textContent  = p.played;
+    document.getElementById('p-wins').textContent    = p.wins;
+    document.getElementById('p-losses').textContent  = p.losses;
+    document.getElementById('p-winpct').textContent  = p.winPct.toFixed(1) + '%';
 
-    // Prediction: earnings per match played × estimated future participations
     const predEl = document.getElementById('p-predict');
     const noteEl = document.getElementById('p-note');
     if (p.played === 0) {
-      predEl.textContent = '—';
-      predEl.className = 'stat-value gold';
+      predEl.textContent = '\u2014';
+      predEl.className   = 'stat-value gold';
       noteEl.textContent = 'No matches played yet.';
     } else {
-      const epm   = p.val / p.played;          // earnings per match
-      const rate  = p.played / MATCHES_PLAYED; // participation rate
-      const left  = TOTAL_MATCHES - MATCHES_PLAYED;
-      const pred  = p.val + epm * (left * rate);
-      const sign  = pred >= 0 ? '+' : '';
-      predEl.textContent = `${sign}${pred.toFixed(2)}GP`;
-      predEl.className   = `stat-value ${pred >= 0 ? 'gold' : 'red'}`;
-      noteEl.textContent = `${epm.toFixed(2)}GP avg/match · ${Math.round(rate*100)}% participation rate · ~${Math.round(left*rate)} games left`;
+      const epm  = p.val / p.played;
+      const rate = p.played / MATCHES_PLAYED;
+      const left = TOTAL_MATCHES - MATCHES_PLAYED;
+      const pred = p.val + epm * (left * rate);
+      const sign = pred >= 0 ? '+' : '';
+      predEl.textContent = sign + pred.toFixed(2) + 'GP';
+      predEl.className   = 'stat-value ' + (pred >= 0 ? 'gold' : 'red');
+      noteEl.textContent = epm.toFixed(2) + 'GP avg/match \u00b7 ' + Math.round(rate*100) + '% participation \u00b7 ~' + Math.round(left*rate) + ' games left';
     }
 
-    // Switch views
     document.querySelector('header').classList.add('hidden');
     document.querySelector('.table-wrap').classList.add('hidden');
     document.querySelector('footer').classList.add('hidden');
     document.getElementById('profile-page').classList.remove('hidden');
     document.getElementById('profile-page').style.display = 'flex';
-    window.scrollTo(0, 0);
+    window.scrollTo(0,0);
   }
 
   function showLeaderboard() {
