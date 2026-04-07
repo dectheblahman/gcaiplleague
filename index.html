@@ -261,9 +261,7 @@
       predEl.textContent = sign + pred.toFixed(2) + 'GP';
       predEl.className   = 'stat-value ' + (pred >= 0 ? 'gold' : 'red');
       noteEl.textContent =
-        epm.toFixed(2) + 'GP avg/match \u00b7 ' +
-        Math.round(rate * 100) + '% participation \u00b7 ~' +
-        Math.round(left * rate) + ' games left';
+        noteEl.textContent = '';
     }
 
     document.querySelector('header').classList.add('hidden');
