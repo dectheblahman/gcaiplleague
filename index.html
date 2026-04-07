@@ -161,65 +161,69 @@
   </div>
 </div>
 <script>
-  const SHEET_ID    = '1i39bI73qHwBt9bFhnRt2mvUK4iIM9D1fPbEU8XcCm1k';
-  const GID_LB      = '1606579395';
-  const GID_OV      = '1279169879';
+  const SHEET_ID = '1i39bI73qHwBt9bFhnRt2mvUK4iIM9D1fPbEU8XcCm1k';
+  const GID_LB   = '1606579395';  // Leaderboard sheet
+  const GID_WL   = '1159382100';  // Win/Loss Record sheet
   const TOTAL_MATCHES  = 74;
   const MATCHES_PLAYED = 9;
 
+  // Player column order in the WL sheet (cols F onwards, 0-indexed from col 0)
+  // Col 0=MATCH, 1=HOME, 2=AWAY, 3=WINNER, 4=blank, 5=BET,
+  // 6=DECLAN, 7=SIDDESH, 8=RAHUL S, 9=SILCHA, 10=SAMARTH,
+  // 11=PANKAJ, 12=OMPRITH, 13=SALONI, 14=ARNAV, 15=PARTH D,
+  // 16=PARTH S, 17=NIHARIKA, 18=UNMESH, 19=SALIL, 20=VAIBHAV,
+  // 21=SUMUKH, 22=SIMON
+  const PLAYER_COLS = {
+    'Declan':6,'Siddesh':7,'Rahul S':8,'Silcha':9,'Samarth':10,
+    'Pankaj':11,'Omprith':12,'Saloni':13,'Arnav':14,'Parth D':15,
+    'Parth S':16,'Niharika':17,'Unmesh':18,'Salil':19,'Vaibhav':20,
+    'Sumukh':21,'Simon':22
+  };
+
   let allPlayers = [];
 
-  function cl(v) { return (v === null || v === undefined) ? '' : String(v).replace(/[\u200b\u200c\u200d\u00ad\u2060\ufeff\u00a0]/g,'').trim(); }
-  function nm(v) { const x = parseFloat(cl(v)); return isNaN(x) ? 0 : x; }
+  function cl(v) { return (v===null||v===undefined)?'':String(v).replace(/[\u200b\u200c\u200d\u00ad\u2060\ufeff\u00a0]/g,'').trim(); }
+  function nm(v) { const x=parseFloat(cl(v)); return isNaN(x)?0:x; }
 
   async function fetchGviz(gid) {
-    const url  = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/gviz/tq?tqx=out:json&gid=' + gid;
+    const url  = 'https://docs.google.com/spreadsheets/d/'+SHEET_ID+'/gviz/tq?tqx=out:json&gid='+gid;
     const res  = await fetch(url);
     const text = await res.text();
-    const m    = text.match(/setResponse\(([\s\S]*)\)/);
-    return JSON.parse(m[1]);
+    return JSON.parse(text.match(/setResponse\(([\s\S]*)\)/)[1]);
   }
 
   async function load() {
-    // Fetch both sheets via gviz simultaneously
-    const [lbJson, ovJson] = await Promise.all([
+    const [lbJson, wlJson] = await Promise.all([
       fetchGviz(GID_LB),
-      fetchGviz(GID_OV)
+      fetchGviz(GID_WL)
     ]);
 
-    // --- Leaderboard ---
+    // --- Leaderboard: col 0=NAME, col 1=EARNINGS ---
     const lbRows = lbJson.table.rows
       .map(r => ({ name: cl(r.c[0]?.v), val: r.c[1]?.v }))
       .filter(r => r.name && r.name !== 'NAME' && r.name !== 'GCA League 2025 Leaderboard' && r.val != null)
       .sort((a, b) => b.val - a.val);
 
-    // --- Overall sheet ---
-    // Col indices (with the blank col B shifting everything +1):
-    // 0=NAME, 1=blank, 2=LEAGUE, 3=KO, 4=FINALS,
-    // 5=inv1, 6=inv2, 7=inv3, 8=TOTAL_INV,
-    // 9=PRIZE_WINS, 10=EARNINGS, 11=PROFIT%, 12=%symbol,
-    // 13=WIN, 14=LOST, 15=TOTAL_PLAYED, 16=WIN%
-    // FINALS col=4 holds 1 for everyone as a not-yet-played placeholder
-    // So we subtract it from LOST and TOTAL_PLAYED
+    // --- WL sheet: read TOTAL WINS (row 82) and TOTAL LOSSES (row 83) ---
+    // These are at table row indices 81 and 82 (0-indexed)
+    // Row 82 in sheet = index 81, row 83 = index 82
+    const wlRows = wlJson.table.rows;
+    const winsRow   = wlRows[81];  // TOTAL WINS row
+    const lossesRow = wlRows[82];  // TOTAL LOSSES row
+
+    // Also count played by reading each match row and counting W or L per player
     const ovMap = {};
-    for (const row of ovJson.table.rows) {
-      if (!row || !row.c) continue;
-      const name = cl(row.c[0]?.v);
-      if (!name || name.length < 2) continue;
-      if (!row.c[13] || row.c[13].v === null) continue; // skip non-player rows
-
-      const finals = nm(row.c[4]?.v);   // finals placeholder (1 for all)
-      const wins   = nm(row.c[13]?.v);
-      const losses = Math.max(0, nm(row.c[14]?.v) - finals);
-      const played = Math.max(0, nm(row.c[15]?.v) - finals);
+    for (const [name, col] of Object.entries(PLAYER_COLS)) {
+      const wins   = winsRow   ? nm(winsRow.c[col]?.v)   : 0;
+      const losses = lossesRow ? nm(lossesRow.c[col]?.v) : 0;
+      const played = wins + losses;
       const winPct = played > 0 ? (wins / played * 100) : 0;
-
       ovMap[name] = { wins, losses, played, winPct };
     }
 
     allPlayers = lbRows.map(p => ({
       ...p,
-      ...(ovMap[p.name] || { wins: 0, losses: 0, played: 0, winPct: 0 })
+      ...(ovMap[p.name] || { wins:0, losses:0, played:0, winPct:0 })
     }));
 
     render(allPlayers);
@@ -229,20 +233,20 @@
     const container = document.getElementById('rows');
     container.innerHTML = '';
     rows.forEach((p, i) => {
-      const pos     = p.val > 0, neg = p.val < 0;
-      const sign    = pos ? '+' : '';
-      const cls     = pos ? 'pos' : neg ? 'neg' : 'zero';
-      const rankCls = i === 0 ? 'rank gold' : 'rank';
-      const nameCls = i === 0 ? 'name top' : 'name';
-      const medal   = i === 0 ? '\u{1F947}' : i === 1 ? '\u{1F948}' : i === 2 ? '\u{1F949}' : (i+1);
-      const div     = document.createElement('div');
-      div.className = 'row';
-      div.style.cssText = 'animation-delay:' + (i*40) + 'ms;cursor:pointer;';
-      div.onclick   = () => showProfile(p.name);
-      div.innerHTML =
-        '<span class="' + rankCls + '">' + medal + '</span>' +
-        '<span class="' + nameCls + '">' + p.name + '</span>' +
-        '<span class="earnings ' + cls + '">' + sign + Math.abs(p.val).toFixed(2) + 'GP</span>' +
+      const pos=p.val>0, neg=p.val<0;
+      const sign=pos?'+':'';
+      const cls=pos?'pos':neg?'neg':'zero';
+      const rankCls=i===0?'rank gold':'rank';
+      const nameCls=i===0?'name top':'name';
+      const medal=i===0?'\u{1F947}':i===1?'\u{1F948}':i===2?'\u{1F949}':(i+1);
+      const div=document.createElement('div');
+      div.className='row';
+      div.style.cssText='animation-delay:'+(i*40)+'ms;cursor:pointer;';
+      div.onclick=()=>showProfile(p.name);
+      div.innerHTML=
+        '<span class="'+rankCls+'">'+medal+'</span>'+
+        '<span class="'+nameCls+'">'+p.name+'</span>'+
+        '<span class="earnings '+cls+'">'+sign+Math.abs(p.val).toFixed(2)+'GP</span>'+
         '<div class="bar"></div>';
       container.appendChild(div);
     });
@@ -252,11 +256,11 @@
     const p = allPlayers.find(x => x.name === name);
     if (!p) return;
 
-    document.getElementById('p-name').textContent    = name;
-    document.getElementById('p-played').textContent  = p.played;
-    document.getElementById('p-wins').textContent    = p.wins;
-    document.getElementById('p-losses').textContent  = p.losses;
-    document.getElementById('p-winpct').textContent  = p.winPct.toFixed(1) + '%';
+    document.getElementById('p-name').textContent   = name;
+    document.getElementById('p-played').textContent = p.played;
+    document.getElementById('p-wins').textContent   = p.wins;
+    document.getElementById('p-losses').textContent = p.losses;
+    document.getElementById('p-winpct').textContent = p.winPct.toFixed(1) + '%';
 
     const predEl = document.getElementById('p-predict');
     const noteEl = document.getElementById('p-note');
@@ -272,7 +276,7 @@
       const sign = pred >= 0 ? '+' : '';
       predEl.textContent = sign + pred.toFixed(2) + 'GP';
       predEl.className   = 'stat-value ' + (pred >= 0 ? 'gold' : 'red');
-      noteEl.textContent = epm.toFixed(2) + 'GP avg/match \u00b7 ' + Math.round(rate*100) + '% participation \u00b7 ~' + Math.round(left*rate) + ' games left';
+      noteEl.textContent = epm.toFixed(2)+'GP avg/match \u00b7 '+Math.round(rate*100)+'% participation \u00b7 ~'+Math.round(left*rate)+' games left';
     }
 
     document.querySelector('header').classList.add('hidden');
